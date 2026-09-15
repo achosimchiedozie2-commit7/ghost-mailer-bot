@@ -1,7 +1,2 @@
-python-telegram-bot[job-queue]==22.3
-aiohttp==3.9.5
-requests==2.32.3
-beautifulsoup4==4.12.3
-googlesearch-python==1.2.4
-python-dotenv==1.0.1
-lxml==5.2.2
+python-telegram-bot[job-queue]
+[STRIPPED 65 bytes]
