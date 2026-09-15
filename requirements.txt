@@ -1,2 +1,5 @@
-python-telegram-bot[job-queue]
-[STRIPPED 65 bytes]
+python-telegram-bot
+requests
+beautifulsoup4
+python-dotenv
+lxml
