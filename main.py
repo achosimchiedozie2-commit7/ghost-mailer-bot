@@ -121,3 +121,123 @@ def get_free_leads(niche: str = "crypto", country: Optional[str] = None, max_lea
                 seen.add(domain)
 
                 emails = scrape_emails(url)
+                # also try /contact
+                if not emails:
+                    emails = scrape_emails(urljoin(url, "/contact")) or scrape_emails(urljoin(url, "/contact-us"))
+
+                for email in emails:
+                    if email in seen or is_excluded(email):
+                        continue
+                    seen.add(email)
+                    leads.append({
+                        "company": domain.replace("www.", "").split(".")[0].title(),
+                        "website": f"https://{domain}",
+                        "email": email,
+                        "country": loc,
+                        "niche": niche,
+                        "source": "free"
+                    })
+                    if len(leads) >= max_leads:
+                        return leads
+                time.sleep(1.2)
+    return leads
+
+def save_csv(leads: List[Dict], prefix: str = "crypto_leads") -> str:
+    os.makedirs("data", exist_ok=True)
+    path = f"data/{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["company", "website", "email", "country", "niche", "source"])
+        writer.writeheader()
+        writer.writerows(leads)
+    return path
+
+# -------------------- BOT HANDLERS --------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "Ghost Mailer LIVE ✅\n\n"
+        "Commands:\n"
+        "/start – this message\n"
+        "/freeleads – get 40-50 free crypto company leads (CSV)\n"
+        "/leads crypto – crypto leads\n"
+        "/leads crypto USA – crypto leads in USA\n"
+        "/status – current status\n\n"
+        "Markets: USA + Europe + Asia only\n"
+        "Africa is completely excluded."
+    )
+    await update.message.reply_text(text)
+
+async def freeleads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔍 Scraping free crypto leads (this can take 1–3 minutes)...")
+    loop = asyncio.get_event_loop()
+    leads = await loop.run_in_executor(None, lambda: get_free_leads("crypto", max_leads=45))
+
+    if not leads:
+        await update.message.reply_text("❌ No leads found right now. Try again in a few minutes.")
+        return
+
+    path = save_csv(leads, "free_crypto")
+    with open(path, "rb") as f:
+        await update.message.reply_document(
+            document=InputFile(f, filename=os.path.basename(path)),
+            caption=f"✅ {len(leads)} free crypto company leads"
+        )
+
+async def leads_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    niche = "crypto"
+    country = None
+    if args:
+        niche = args[0].lower()
+        if len(args) > 1:
+            country = " ".join(args[1:])
+
+    await update.message.reply_text(f"🔍 Searching {niche} leads" + (f" in {country}" if country else "") + "...")
+    loop = asyncio.get_event_loop()
+    leads = await loop.run_in_executor(None, lambda: get_free_leads(niche, country, max_leads=40))
+
+    if not leads:
+        await update.message.reply_text("❌ No leads found. Try a different country or wait a bit.")
+        return
+
+    path = save_csv(leads, f"leads_{niche}")
+    with open(path, "rb") as f:
+        await update.message.reply_document(
+            document=InputFile(f, filename=os.path.basename(path)),
+            caption=f"✅ {len(leads)} {niche} leads"
+        )
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📊 *Bot Status*\n\n"
+        "Mode: FREE (no API keys)\n"
+        "Markets: USA + Europe + Asia\n"
+        "Excluded: All African countries\n"
+        "Niches: crypto, forex, construction\n"
+        "Commands: /freeleads, /leads, /status"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+# -------------------- MAIN --------------------
+def main():
+    # Fix for Python 3.12+ event loop
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # Health server
+    t = threading.Thread(target=start_health_server, daemon=True)
+    t.start()
+
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("freeleads", freeleads))
+    application.add_handler(CommandHandler("leads", leads_cmd))
+    application.add_handler(CommandHandler("status", status))
+
+    logger.info("Bot starting with lead features...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
